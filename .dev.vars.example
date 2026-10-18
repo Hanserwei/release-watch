@@ -1,0 +1,11 @@
+ADMIN_TOKEN=""
+GITHUB_TOKEN=""
+# 可选：DeepSeek 中文摘要密钥，20 到 200 位可见 ASCII 字符。
+# 也可以在管理界面保存（界面密钥优先），此项留空即可。
+DEEPSEEK_API_KEY=""
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_WEBHOOK_SECRET=""
+TELEGRAM_ALLOWED_USER_ID=""
+TELEGRAM_CHAT_ID=""
+# 部署后的站点根地址，供 scripts/telegram-webhook.mjs 使用。
+APP_URL="https://release-watch.<your-subdomain>.workers.dev"
