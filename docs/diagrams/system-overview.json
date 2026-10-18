@@ -1,0 +1,515 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Release Watch · 系统架构",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/system-overview.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/Hanserwei/release-watch.git",
+      "revision": "d4027abf7b955597145fb550c624338784a9c529",
+      "link_mode": "web"
+    }
+  },
+  "components": [
+    {
+      "id": "readers",
+      "type": "external",
+      "icon": "person",
+      "label": "访客与管理员",
+      "sublabel": "公开浏览 / 私有管理",
+      "pos": [
+        40,
+        50
+      ],
+      "size": [
+        170,
+        84
+      ],
+      "sources": [
+        {
+          "path": "src/web/App.tsx",
+          "line": 586,
+          "end_line": 588
+        }
+      ]
+    },
+    {
+      "id": "web",
+      "type": "frontend",
+      "label": "React 控制台",
+      "sublabel": "订阅 / 时间线 / 配置",
+      "tag": "Vite 静态构建",
+      "pos": [
+        270,
+        50
+      ],
+      "size": [
+        170,
+        84
+      ],
+      "sources": [
+        {
+          "path": "src/web/main.tsx",
+          "line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "src/web/api.ts",
+          "line": 68,
+          "end_line": 80
+        },
+        {
+          "path": "wrangler.jsonc",
+          "line": 7,
+          "end_line": 15
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "security",
+      "label": "Hono HTTP API",
+      "sublabel": "Bearer 管理 / 公开投影",
+      "tag": "ADMIN_TOKEN",
+      "pos": [
+        530,
+        50
+      ],
+      "size": [
+        170,
+        84
+      ],
+      "sources": [
+        {
+          "path": "src/server/index.ts",
+          "line": 14,
+          "end_line": 31
+        },
+        {
+          "path": "src/server/index.ts",
+          "line": 57,
+          "end_line": 83
+        },
+        {
+          "path": "src/server/public.ts",
+          "line": 17,
+          "end_line": 60
+        }
+      ]
+    },
+    {
+      "id": "webhook",
+      "type": "security",
+      "label": "Telegram Webhook",
+      "sublabel": "secret + 单管理员私聊",
+      "pos": [
+        790,
+        50
+      ],
+      "size": [
+        170,
+        84
+      ],
+      "sources": [
+        {
+          "path": "src/server/telegram.ts",
+          "line": 163,
+          "end_line": 195
+        },
+        {
+          "path": "src/server/telegram.ts",
+          "line": 96,
+          "end_line": 126
+        },
+        {
+          "path": "src/server/subscriptions.ts",
+          "line": 52,
+          "end_line": 140
+        }
+      ]
+    },
+    {
+      "id": "d1",
+      "type": "database",
+      "label": "Cloudflare D1",
+      "sublabel": "订阅 / 版本 / 持久队列",
+      "tag": "唯一约束 + 事务",
+      "pos": [
+        530,
+        270
+      ],
+      "size": [
+        170,
+        90
+      ],
+      "sources": [
+        {
+          "path": "migrations/0001_initial.sql",
+          "line": 1,
+          "end_line": 80
+        },
+        {
+          "path": "migrations/0003_cover_and_settings.sql",
+          "line": 1,
+          "end_line": 18
+        },
+        {
+          "path": "src/server/settings.ts",
+          "line": 41,
+          "end_line": 94
+        }
+      ]
+    },
+    {
+      "id": "assets",
+      "type": "cloud",
+      "label": "静态封面资源",
+      "sublabel": "public/covers → ASSETS",
+      "tag": "PNG 字节上传",
+      "pos": [
+        790,
+        270
+      ],
+      "size": [
+        170,
+        90
+      ],
+      "sources": [
+        {
+          "path": "wrangler.jsonc",
+          "line": 7,
+          "end_line": 15
+        },
+        {
+          "path": "src/server/telegram-client.ts",
+          "line": 41,
+          "end_line": 60
+        },
+        {
+          "path": "src/shared/covers.ts",
+          "line": 1,
+          "end_line": 16
+        }
+      ]
+    },
+    {
+      "id": "poller",
+      "type": "backend",
+      "label": "版本检查器",
+      "sublabel": "基线 / ETag / 历史扫描",
+      "tag": "每批至多 3 项目",
+      "pos": [
+        270,
+        490
+      ],
+      "size": [
+        170,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/server/poller.ts",
+          "line": 8,
+          "end_line": 49
+        },
+        {
+          "path": "src/server/poller.ts",
+          "line": 52,
+          "end_line": 94
+        },
+        {
+          "path": "src/server/github.ts",
+          "line": 63,
+          "end_line": 83
+        }
+      ]
+    },
+    {
+      "id": "cron",
+      "type": "cloud",
+      "icon": "clock",
+      "label": "每分钟定时调度",
+      "sublabel": "检查到期项目 → 发送队列",
+      "tag": "* * * * *",
+      "pos": [
+        530,
+        490
+      ],
+      "size": [
+        170,
+        90
+      ],
+      "sources": [
+        {
+          "path": "wrangler.jsonc",
+          "line": 16,
+          "end_line": 20
+        },
+        {
+          "path": "src/server/index.ts",
+          "line": 93,
+          "end_line": 104
+        }
+      ]
+    },
+    {
+      "id": "delivery",
+      "type": "backend",
+      "label": "通知队列执行器",
+      "sublabel": "领取租约 / 记录分段进度",
+      "tag": "每次 1 条成功发送",
+      "pos": [
+        790,
+        490
+      ],
+      "size": [
+        170,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/server/deliveries.ts",
+          "line": 15,
+          "end_line": 44
+        },
+        {
+          "path": "src/server/deliveries.ts",
+          "line": 55,
+          "end_line": 115
+        },
+        {
+          "path": "src/server/deliveries.ts",
+          "line": 116,
+          "end_line": 125
+        }
+      ]
+    },
+    {
+      "id": "telegram",
+      "type": "external",
+      "label": "Telegram 云端",
+      "sublabel": "Bot API / 已绑定私聊",
+      "tag": "图片与文字通知",
+      "pos": [
+        1050,
+        490
+      ],
+      "size": [
+        150,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/server/telegram-client.ts",
+          "line": 12,
+          "end_line": 38
+        },
+        {
+          "path": "src/server/telegram-client.ts",
+          "line": 41,
+          "end_line": 60
+        },
+        {
+          "path": "scripts/telegram-webhook.mjs",
+          "line": 1,
+          "end_line": 24
+        }
+      ]
+    },
+    {
+      "id": "github",
+      "type": "external",
+      "label": "GitHub REST API",
+      "sublabel": "可见性检查 / Releases",
+      "tag": "认证请求 + 条件拉取",
+      "pos": [
+        270,
+        730
+      ],
+      "size": [
+        170,
+        84
+      ],
+      "sources": [
+        {
+          "path": "src/server/github.ts",
+          "line": 31,
+          "end_line": 53
+        },
+        {
+          "path": "src/server/github.ts",
+          "line": 63,
+          "end_line": 83
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "type": "external",
+      "label": "DeepSeek 摘要",
+      "sublabel": "deepseek-chat / 中文要点",
+      "tag": "可选 · 8 秒超时",
+      "pos": [
+        790,
+        730
+      ],
+      "size": [
+        170,
+        84
+      ],
+      "sources": [
+        {
+          "path": "src/server/changelog.ts",
+          "line": 9,
+          "end_line": 39
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Cloudflare 边缘部署 · 单个 Worker + D1",
+      "wraps": [
+        "web",
+        "api",
+        "webhook",
+        "d1",
+        "assets",
+        "poller",
+        "cron",
+        "delivery"
+      ],
+      "pad": 24
+    }
+  ],
+  "connections": [
+    {
+      "id": "browse",
+      "from": "readers",
+      "to": "web",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "web-api",
+      "from": "web",
+      "to": "api",
+      "label": "JSON / 鉴权",
+      "variant": "security"
+    },
+    {
+      "id": "command-state",
+      "from": "webhook",
+      "to": "d1",
+      "label": "授权绑定与订阅",
+      "variant": "security"
+    },
+    {
+      "id": "api-state",
+      "from": "api",
+      "to": "d1",
+      "label": "订阅与配置"
+    },
+    {
+      "id": "cron-check",
+      "from": "cron",
+      "to": "poller",
+      "label": "到期检查",
+      "variant": "dashed"
+    },
+    {
+      "id": "cron-send",
+      "from": "cron",
+      "to": "delivery",
+      "label": "消费队列",
+      "variant": "dashed"
+    },
+    {
+      "id": "releases-fetch",
+      "from": "poller",
+      "to": "github",
+      "label": "GET / ETag",
+      "variant": "emphasis"
+    },
+    {
+      "id": "release-store",
+      "from": "poller",
+      "to": "d1",
+      "label": "版本入队",
+      "variant": "emphasis"
+    },
+    {
+      "id": "delivery-store",
+      "from": "delivery",
+      "to": "d1",
+      "label": "领取与续传"
+    },
+    {
+      "id": "summary-request",
+      "from": "delivery",
+      "to": "deepseek",
+      "label": "启用且有 Key"
+    },
+    {
+      "id": "cover-bytes",
+      "from": "delivery",
+      "to": "assets",
+      "label": "内置封面"
+    },
+    {
+      "id": "send-notification",
+      "from": "delivery",
+      "to": "telegram",
+      "label": "图文推送",
+      "variant": "emphasis"
+    },
+    {
+      "id": "telegram-commands",
+      "from": "telegram",
+      "to": "webhook",
+      "label": "HTTPS 更新",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "信任边界",
+      "items": [
+        "管理接口验证 Bearer ADMIN_TOKEN；匿名接口只返回公开字段白名单。",
+        "Webhook 校验独立 secret、用户白名单与私聊来源。",
+        "DeepSeek Key 可在后台或环境配置；响应与日志不回显密钥。"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "版本发现",
+      "items": [
+        "首次成功读取最新页建立基线，订阅前的历史版本不补发。",
+        "每页 15 条；最新页使用 ETag，历史分页持续后台扫描。",
+        "暂停、预发布策略和订阅时间共同决定通知资格。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "可恢复投递",
+      "items": [
+        "D1 outbox 与会话锁使用 60 秒租约；失败至多尝试 8 次。",
+        "先发封面与 1024 字说明；后续文字每段最多 4000 字。",
+        "保存图片消息号和文本 offset，后续调度从已记录位置继续。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "可选中文摘要",
+      "items": [
+        "完整 changelog 交给 deepseek-chat；body 或 tag 变化使摘要缓存失效。",
+        "未配置、停用、超时或异常时发送原文，长原文分段保留。",
+        "不可用的图片回退文字；Telegram 429 按 Retry-After 重试。"
+      ]
+    }
+  ]
+}

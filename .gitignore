@@ -11,3 +11,6 @@ coverage/
 *.log
 .archify/
 .DS_Store
+docs/diagrams/*.delivery.json
+docs/diagrams/*.browser-check.json
+docs/diagrams/*.finalize*.json

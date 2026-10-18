@@ -1,0 +1,583 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Release Watch · 从发现版本到图文通知",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/notification-flow.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/Hanserwei/release-watch.git",
+      "revision": "d4027abf7b955597145fb550c624338784a9c529",
+      "link_mode": "web"
+    },
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "emphasis": {
+          "label": "主路径调用"
+        },
+        "return": {
+          "label": "返回值 / 结果"
+        },
+        "security": {
+          "label": "鉴权与边界",
+          "visible": false
+        },
+        "dashed": {
+          "label": "可选或恢复路径"
+        },
+        "default": {
+          "label": "状态读写"
+        }
+      }
+    }
+  },
+  "participants": [
+    {
+      "id": "trigger",
+      "type": "external",
+      "icon": "clock",
+      "label": "Cron / 手动",
+      "sublabel": "每分钟或 force",
+      "sources": [
+        {
+          "path": "wrangler.jsonc",
+          "line": 16,
+          "end_line": 20,
+          "label": "每分钟 Cron"
+        },
+        {
+          "path": "src/server/index.ts",
+          "line": 74,
+          "end_line": 78,
+          "label": "手动检查接口"
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "icon": "backend",
+      "label": "Worker 入口",
+      "sublabel": "index.ts",
+      "sources": [
+        {
+          "path": "src/server/index.ts",
+          "line": 93,
+          "end_line": 105,
+          "label": "scheduled 处理器"
+        },
+        {
+          "path": "src/server/index.ts",
+          "line": 74,
+          "end_line": 82,
+          "label": "check / retry 接口"
+        }
+      ]
+    },
+    {
+      "id": "poller",
+      "type": "backend",
+      "icon": "backend",
+      "label": "Poller",
+      "sublabel": "runChecks",
+      "sources": [
+        {
+          "path": "src/server/poller.ts",
+          "line": 96,
+          "end_line": 119,
+          "label": "runChecks 并发两worker"
+        },
+        {
+          "path": "src/server/poller.ts",
+          "line": 52,
+          "end_line": 95,
+          "label": "checkProject"
+        }
+      ]
+    },
+    {
+      "id": "github",
+      "type": "cloud",
+      "icon": "cloud",
+      "label": "GitHub API",
+      "sublabel": "/releases?page=",
+      "sources": [
+        {
+          "path": "src/server/github.ts",
+          "line": 63,
+          "end_line": 83,
+          "label": "fetchReleasePage/ETag"
+        },
+        {
+          "path": "src/server/github.ts",
+          "line": 49,
+          "end_line": 54,
+          "label": "仓库可见性"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "icon": "database",
+      "label": "D1",
+      "sublabel": "SQLite 状态",
+      "sources": [
+        {
+          "path": "migrations/0001_initial.sql",
+          "line": 3,
+          "end_line": 80,
+          "label": "表与唯一约束"
+        },
+        {
+          "path": "src/server/poller.ts",
+          "line": 8,
+          "end_line": 51,
+          "label": "savePage 原子入队"
+        }
+      ]
+    },
+    {
+      "id": "deliveries",
+      "type": "backend",
+      "icon": "backend",
+      "label": "Deliveries",
+      "sublabel": "deliverPending",
+      "sources": [
+        {
+          "path": "src/server/deliveries.ts",
+          "line": 15,
+          "end_line": 129,
+          "label": "认领、发送、续发"
+        },
+        {
+          "path": "src/server/changelog.ts",
+          "line": 9,
+          "end_line": 39,
+          "label": "摘要与回退"
+        }
+      ]
+    },
+    {
+      "id": "telegram",
+      "type": "cloud",
+      "icon": "cloud",
+      "label": "Telegram",
+      "sublabel": "Bot API",
+      "sources": [
+        {
+          "path": "src/server/telegram-client.ts",
+          "line": 12,
+          "end_line": 60,
+          "label": "发送与错误分级"
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "type": "cloud",
+      "icon": "cloud",
+      "label": "DeepSeek",
+      "sublabel": "可选摘要",
+      "sources": [
+        {
+          "path": "src/server/changelog.ts",
+          "line": 15,
+          "end_line": 38,
+          "label": "8 秒摘要调用"
+        },
+        {
+          "path": "src/server/settings.ts",
+          "line": 41,
+          "end_line": 60,
+          "label": "启用与密钥来源"
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 146,
+      "to": 504,
+      "label": "① 触发与检查认领"
+    },
+    {
+      "from": 540,
+      "to": 865,
+      "label": "② 首页、ETag 与原子入队"
+    },
+    {
+      "from": 901,
+      "to": 1270,
+      "label": "③ 认领与组装通知文本"
+    },
+    {
+      "from": 1306,
+      "to": 1596,
+      "label": "④ 图文发送与进度落库"
+    },
+    {
+      "from": 1632,
+      "to": 1745,
+      "label": "⑤ 失败与手动恢复"
+    }
+  ],
+  "messages": [
+    {
+      "id": "tick",
+      "from": "trigger",
+      "to": "worker",
+      "y": 176,
+      "label": "Cron 分钟 tick 或 POST /check",
+      "variant": "emphasis",
+      "note": "Cron 无条件跑；手动检查 force=true 忽略间隔"
+    },
+    {
+      "id": "cron-time",
+      "from": "worker",
+      "to": "db",
+      "y": 244,
+      "label": "写 last_cron_at",
+      "variant": "default",
+      "note": "仅 Cron 路径"
+    },
+    {
+      "id": "run-checks",
+      "from": "worker",
+      "to": "poller",
+      "y": 290,
+      "label": "runChecks(env)",
+      "variant": "emphasis",
+      "note": "取到期项目，最多 3 个、两路并发"
+    },
+    {
+      "id": "claim",
+      "from": "poller",
+      "to": "db",
+      "y": 347,
+      "label": "UPDATE projects 领租约",
+      "variant": "emphasis",
+      "note": "租约已过期；force 时跳过到期"
+    },
+    {
+      "id": "claim-row",
+      "from": "db",
+      "to": "poller",
+      "y": 404,
+      "label": "project 行或 null",
+      "variant": "return"
+    },
+    {
+      "id": "visibility",
+      "from": "poller",
+      "to": "github",
+      "y": 434,
+      "label": "GET /repos/{repo}",
+      "variant": "default"
+    },
+    {
+      "id": "private-flag",
+      "from": "github",
+      "to": "poller",
+      "y": 464,
+      "label": "private 标记",
+      "variant": "return"
+    },
+    {
+      "id": "write-public",
+      "from": "poller",
+      "to": "db",
+      "y": 494,
+      "label": "写 is_public",
+      "variant": "default"
+    },
+    {
+      "id": "head-page",
+      "from": "poller",
+      "to": "github",
+      "y": 570,
+      "label": "GET /releases?page=1 + ETag",
+      "variant": "emphasis",
+      "note": "304 表示首页未变"
+    },
+    {
+      "id": "head-result",
+      "from": "github",
+      "to": "poller",
+      "y": 616,
+      "label": "列表+新 ETag 或 304",
+      "variant": "return"
+    },
+    {
+      "id": "enqueue",
+      "from": "poller",
+      "to": "db",
+      "y": 646,
+      "label": "db.batch 原子入队",
+      "variant": "emphasis",
+      "note": "4 条语句同批"
+    },
+    {
+      "id": "seen-count",
+      "from": "db",
+      "to": "poller",
+      "y": 692,
+      "label": "first_seen_token 计数",
+      "variant": "return"
+    },
+    {
+      "id": "sweep",
+      "from": "poller",
+      "to": "github",
+      "y": 722,
+      "label": "GET page=scan_page",
+      "variant": "dashed",
+      "note": "304 或有下一页时"
+    },
+    {
+      "id": "sweep-result",
+      "from": "github",
+      "to": "poller",
+      "y": 768,
+      "label": "更旧的一页",
+      "variant": "return"
+    },
+    {
+      "id": "advance",
+      "from": "poller",
+      "to": "db",
+      "y": 798,
+      "label": "写 etag / scan_page",
+      "variant": "default"
+    },
+    {
+      "id": "check-failed",
+      "from": "poller",
+      "to": "db",
+      "y": 828,
+      "label": "失败：退避重排",
+      "variant": "dashed",
+      "note": "限流取 retryAt，否则指数"
+    },
+    {
+      "id": "deliver-call",
+      "from": "worker",
+      "to": "deliveries",
+      "y": 931,
+      "label": "deliverPending(env)",
+      "variant": "emphasis",
+      "note": "Cron 与手动检查各调一次"
+    },
+    {
+      "id": "prune",
+      "from": "deliveries",
+      "to": "db",
+      "y": 988,
+      "label": "DELETE 失效投递",
+      "variant": "default"
+    },
+    {
+      "id": "reclaim",
+      "from": "deliveries",
+      "to": "db",
+      "y": 1018,
+      "label": "超限 sending 置 failed",
+      "variant": "default"
+    },
+    {
+      "id": "select-candidates",
+      "from": "deliveries",
+      "to": "db",
+      "y": 1048,
+      "label": "SELECT 候选，每次 1 条",
+      "variant": "emphasis"
+    },
+    {
+      "id": "claim-delivery",
+      "from": "deliveries",
+      "to": "db",
+      "y": 1078,
+      "label": "锁 chat + 认领 delivery",
+      "variant": "emphasis",
+      "note": "chat 锁 60 秒"
+    },
+    {
+      "id": "read-release",
+      "from": "deliveries",
+      "to": "db",
+      "y": 1124,
+      "label": "读 release 与进度",
+      "variant": "default"
+    },
+    {
+      "id": "release-row",
+      "from": "db",
+      "to": "deliveries",
+      "y": 1154,
+      "label": "正文 / 偏移 / 封面",
+      "variant": "return"
+    },
+    {
+      "id": "summary",
+      "from": "deliveries",
+      "to": "deepseek",
+      "y": 1184,
+      "label": "POST /chat/completions",
+      "variant": "dashed",
+      "note": "可选，超时 8 秒"
+    },
+    {
+      "id": "summary-result",
+      "from": "deepseek",
+      "to": "deliveries",
+      "y": 1230,
+      "label": "摘要或原文",
+      "variant": "dashed"
+    },
+    {
+      "id": "save-text",
+      "from": "deliveries",
+      "to": "db",
+      "y": 1260,
+      "label": "回写 notification_text",
+      "variant": "default"
+    },
+    {
+      "id": "send-photo",
+      "from": "deliveries",
+      "to": "telegram",
+      "y": 1336,
+      "label": "sendPhoto，caption≤1024",
+      "variant": "emphasis",
+      "note": "有封面且未发图"
+    },
+    {
+      "id": "photo-result",
+      "from": "telegram",
+      "to": "deliveries",
+      "y": 1382,
+      "label": "message_id 或 400 降级",
+      "variant": "return"
+    },
+    {
+      "id": "send-text",
+      "from": "deliveries",
+      "to": "telegram",
+      "y": 1412,
+      "label": "sendMessage≤4000",
+      "variant": "emphasis"
+    },
+    {
+      "id": "text-result",
+      "from": "telegram",
+      "to": "deliveries",
+      "y": 1442,
+      "label": "message_id",
+      "variant": "return"
+    },
+    {
+      "id": "save-progress",
+      "from": "deliveries",
+      "to": "db",
+      "y": 1472,
+      "label": "落库状态、ID、偏移",
+      "variant": "emphasis",
+      "note": "未发完置 pending 续发"
+    },
+    {
+      "id": "sent-mark",
+      "from": "deliveries",
+      "to": "db",
+      "y": 1529,
+      "label": "complete 置 sent",
+      "variant": "default",
+      "note": "同时记 last_delivery_at"
+    },
+    {
+      "id": "deliver-return",
+      "from": "deliveries",
+      "to": "worker",
+      "y": 1586,
+      "label": "DeliverySummary",
+      "variant": "return"
+    },
+    {
+      "id": "backoff",
+      "from": "deliveries",
+      "to": "db",
+      "y": 1662,
+      "label": "退避后重排 pending",
+      "variant": "dashed",
+      "note": "429 用 retry_after"
+    },
+    {
+      "id": "manual-retry",
+      "from": "worker",
+      "to": "db",
+      "y": 1719,
+      "label": "POST /deliveries/retry",
+      "variant": "default",
+      "note": "attempts 归零"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "基线：只通知订阅之后的新版本",
+      "items": [
+        "首次检查把首页整页写入 releases 后立即置 etag 与 initialized=1，历史版本只入库、不补发",
+        "subscriptions.notify_after 记订阅起点，deliveries 只对 notify_at ≥ notify_after 的版本排队",
+        "首页返回 304 时也补设 initialized=1，说明基线此前已建立"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "原子入队：一批四条语句",
+      "items": [
+        "savePage 用 env.DB.batch 递交：暂停期跳过表、releases upsert、deliveries insert、projects 更新",
+        "四条语句都带 lease_token 与 lease_until 守卫，租约失效则整批不生效",
+        "deliveries 的 UNIQUE(chat_id, release_id) 只保证队列行唯一",
+        "正文或 tag 变化时 changelog_zh 置空，旧摘要不会挂到新正文"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "两层租约：项目与投递",
+      "items": [
+        "项目检查用 projects.lease_token + 90 秒 lease_until，Cron 与手动检查共用同一把租约",
+        "投递用 deliveries 行租约 60 秒，另加 chat_delivery_locks 每聊天一把锁，next_send_at 强制 1 秒间隔",
+        "发送中途崩溃时租约到期可被下一轮重新认领，不会永久停在 sending"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "摘要可选，失败必须回退原文",
+      "items": [
+        "仅在设置已启用且解析到密钥时请求 DeepSeek，AbortSignal.timeout(8000)",
+        "非 2xx、无内容、finish_reason≠stop、超 6000 字符或抛异常，一律返回 GitHub 原文",
+        "写回 changelog_zh 时以 body 与 tag 未变为条件，避免竞态覆盖"
+      ]
+    },
+    {
+      "dot": "orange",
+      "title": "图文与多轮续发",
+      "items": [
+        "有封面且未发图时先 sendPhoto，caption 取正文前 1024 字符；sendPhoto 返回 400 时降级为纯文本",
+        "正文从 text_offset 起每片 4000 字符 sendMessage，切片避开代理对",
+        "每次调用每个聊天只发一条消息；notification_text、photo_message_id、text_offset 落库后下一轮续发",
+        "全部发完才置 sent 并写 sent_at，否则回到 pending，1 秒后继续"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "重试分级，且不承诺 exactly-once",
+      "items": [
+        "429 的等待取 Telegram retry_after 秒数与指数退避的较大值；401/403/非封面 400 直接置 failed",
+        "其余错误按 retryDelay 指数退避（1 分钟起，上限 24 小时），attempts 达 8 置 failed，可 POST /deliveries/retry 全部重排",
+        "发送成功后、落库前崩溃会重发（含 sendPhoto 成功而 sendMessage 失败时的重复图片）：唯一键只约束队列行，不是端到端恰好一次"
+      ]
+    }
+  ]
+}
