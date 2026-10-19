@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { z } from 'zod';
+import { sliceTelegramText, type TelegramText } from './telegram-text';
 
 export class TelegramError extends Error {
   constructor(message: string, public retryAfter: number | null = null, public permanent = false) {
@@ -48,14 +49,15 @@ async function telegramRequest(env: Env, chatId: string, method: 'sendMessage' |
   return payload.result!.message_id!;
 }
 
-export async function sendTelegramMessage(env: Env, chatId: string, text: string): Promise<number> {
+export async function sendTelegramMessage(env: Env, chatId: string, text: string | TelegramText): Promise<number> {
+  const part = sliceTelegramText(text, 0, 4000);
   return telegramRequest(env, chatId, 'sendMessage', JSON.stringify({
-    chat_id: chatId, text: text.slice(0, 4000).replace(/[\uD800-\uDBFF]$/, ''), link_preview_options: { is_disabled: true },
+    chat_id: chatId, text: part.text, ...(part.entities.length ? { entities: part.entities } : {}), link_preview_options: { is_disabled: true },
   }));
 }
 
-export async function sendTelegramPhoto(env: Env, chatId: string, caption: string, coverUrl: string): Promise<number> {
-  const text = caption.slice(0, 1024).replace(/[\uD800-\uDBFF]$/, '');
+export async function sendTelegramPhoto(env: Env, chatId: string, caption: string | TelegramText, coverUrl: string): Promise<number> {
+  const part = sliceTelegramText(caption, 0, 1024);
   if (/^\/covers\/[a-z0-9-]+\.png$/.test(coverUrl)) {
     // Upload bundled images directly; Telegram cannot reach a local development server.
     let photo: Blob;
@@ -66,9 +68,12 @@ export async function sendTelegramPhoto(env: Env, chatId: string, caption: strin
       if (!photo.size || photo.size > 10_000_000) throw new TelegramPhotoError();
     } catch { throw new TelegramPhotoError(); }
     const body = new FormData();
-    body.set('chat_id', chatId); body.set('caption', text); body.set('photo', photo, coverUrl.split('/').pop()!);
+    body.set('chat_id', chatId); body.set('caption', part.text); body.set('photo', photo, coverUrl.split('/').pop()!);
+    if (part.entities.length) body.set('caption_entities', JSON.stringify(part.entities));
     return telegramRequest(env, chatId, 'sendPhoto', body);
   }
   if (!coverUrl.startsWith('https://')) throw new TelegramPhotoError();
-  return telegramRequest(env, chatId, 'sendPhoto', JSON.stringify({ chat_id: chatId, photo: coverUrl, caption: text }));
+  return telegramRequest(env, chatId, 'sendPhoto', JSON.stringify({ chat_id: chatId, photo: coverUrl, caption: part.text,
+    ...(part.entities.length ? { caption_entities: part.entities } : {}),
+  }));
 }

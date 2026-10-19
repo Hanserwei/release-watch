@@ -7,6 +7,8 @@ import { deliverPending } from '../src/server/deliveries';
 import { updateSubscription } from '../src/server/subscriptions';
 import { fetchReleasePage } from '../src/server/github';
 import { runChecks } from '../src/server/poller';
+import { z } from 'zod';
+import { telegramEntitiesSchema } from '../src/server/telegram-text';
 
 const bindings = env as unknown as Env;
 let fetchMock: Mock<typeof fetch>;
@@ -110,7 +112,8 @@ describe('cover notifications and complete original fallback', () => {
     expect(String(url)).toContain('/sendPhoto');
     const body = init?.body as FormData;
     expect(body.get('chat_id')).toBe('12345');
-    expect(body.get('caption')).toContain('中文更新摘要（DeepSeek）\n新增搜索，修复时区。');
+    expect(body.get('caption')).toContain('📝 中文更新摘要 · DeepSeek\n\n新增搜索，修复时区。');
+    expect(body.get('caption_entities')).toContain('bold');
     expect(body.get('photo')).toBeInstanceOf(Blob);
     expect(await bindings.DB.prepare('SELECT status,photo_message_id FROM deliveries').first()).toEqual({ status: 'sent', photo_message_id: 42 });
   });
@@ -121,7 +124,11 @@ describe('cover notifications and complete original fallback', () => {
     expect(await deliverPending(bindings)).toEqual({ sent: 1, failed: 0 });
     expect(String(fetchMock.mock.calls[0][0])).toContain('/sendPhoto');
     expect(String(fetchMock.mock.calls[1][0])).toContain('/sendMessage');
-    expect(JSON.parse(fetchMock.mock.calls[1][1]?.body as string).text).toContain(original);
+    const message = z.object({ text: z.string(), entities: telegramEntitiesSchema }).parse(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)));
+    expect(message.text).toContain('Add search');
+    expect(message.text).toContain('Correct timezone conversion');
+    expect(message.entities.some(entity =>
+      entity.type === 'bold' && message.text.slice(entity.offset, entity.offset + entity.length) === 'Features')).toBe(true);
   });
   it('resumes a long original after rate limiting without duplicating the cover or earlier text', async () => {
     const longBody = 'Original changelog line.\n'.repeat(500) + '最后一项修复。';
@@ -161,5 +168,46 @@ describe('cover notifications and complete original fallback', () => {
     expect(await deliverPending(bindings)).toEqual({ sent: 0, failed: 0 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await bindings.DB.prepare('SELECT COUNT(*) AS n FROM deliveries').first()).toEqual({ n: 0 });
+  });
+});
+
+describe('rich notification persistence and legacy recovery', () => {
+  it('keeps the exact formatted snapshot across caption, continuation, and a source edit', async () => {
+    const changelog = '## Features\n**' + '新增搜索能力🚀'.repeat(700) + '**\n\n```ts\n' + 'const x = "a_b";\n'.repeat(200) + '```';
+    await bindings.DB.prepare("UPDATE projects SET cover_url='https://images.example/cover.png' WHERE id=1").run();
+    await bindings.DB.prepare('UPDATE releases SET body=? WHERE id=1').bind(changelog).run();
+    const parts: string[] = [];
+    fetchMock.mockImplementation(async (_url, init) => {
+      const payload = z.object({ text: z.string().optional(), caption: z.string().optional(), entities: telegramEntitiesSchema.optional(), caption_entities: telegramEntitiesSchema.optional() }).parse(JSON.parse(String(init?.body)));
+      const text = payload.text ?? payload.caption ?? '';
+      const entities = payload.entities ?? payload.caption_entities ?? [];
+      for (const entity of entities) expect(entity.offset + entity.length).toBeLessThanOrEqual(text.length);
+      expect(entities.length).toBeGreaterThan(0);
+      parts.push(text);
+      return Response.json({ ok: true, result: { message_id: 42 + parts.length } });
+    });
+    expect(await deliverPending(bindings)).toEqual({ sent: 0, failed: 0 });
+    const snapshot = await bindings.DB.prepare('SELECT notification_text,notification_entities FROM deliveries').first<{ notification_text: string; notification_entities: string }>();
+    expect(snapshot?.notification_entities).toContain('bold');
+    await bindings.DB.prepare("UPDATE releases SET body='Source changed after first send' WHERE id=1").run();
+    for (let index = 0; index < 6; index++) { await readyNextPart(); await deliverPending(bindings); }
+    expect(parts.join('')).toBe(snapshot?.notification_text);
+    expect(parts.join('')).not.toContain('Source changed');
+    const completed = await bindings.DB.prepare('SELECT status,notification_entities FROM deliveries').first<{ status: string; notification_entities: string }>();
+    expect(completed?.status).toBe('sent');
+    expect(telegramEntitiesSchema.parse(JSON.parse(completed!.notification_entities)))
+      .toEqual(telegramEntitiesSchema.parse(JSON.parse(snapshot!.notification_entities)));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/sendPhoto'))).toHaveLength(1);
+  });
+
+  it('continues an already prepared legacy message without reinterpreting Markdown or changing its offset', async () => {
+    const legacy = 'Old **literal** original text\n'.repeat(300);
+    await bindings.DB.prepare('UPDATE deliveries SET notification_text=?,notification_entities=NULL,text_offset=1024,photo_message_id=42').bind(legacy).run();
+    fetchMock.mockImplementation(async () => Response.json({ ok: true, result: { message_id: 99 } }));
+    await deliverPending(bindings);
+    const payload = z.object({ text: z.string(), entities: telegramEntitiesSchema.optional() }).parse(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)));
+    expect(payload.text).toBe(legacy.slice(1024, 5024));
+    expect(payload.entities).toBeUndefined();
+    expect(await bindings.DB.prepare('SELECT notification_text,text_offset FROM deliveries').first()).toEqual({ notification_text: legacy, text_offset: 5024 });
   });
 });

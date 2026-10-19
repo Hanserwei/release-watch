@@ -91,7 +91,7 @@ Release Watch 是部署在单个 Cloudflare Worker 上的版本雷达：一个 H
 3. **取候选**：`pending` 且 `next_attempt_at <= now`，或 `sending` 且租约已过期；同时要求该聊天没有生效中的发送锁；每次最多 `DELIVERY_BATCH_SIZE` 条（该值被夹在 1–1，即每次调用只处理一条）。
 4. **认领**：先 `INSERT ... ON CONFLICT DO UPDATE chat_delivery_locks`（`next_send_at=now+1s`、租约 60 秒），再条件更新 `deliveries` 到 `sending`、`attempts+1`，并 `RETURNING` 认领行。两条语句在同一 batch 内、且第二条要求锁令牌匹配，所以两个执行者不会同时拿到同一条通知。
 5. **组装文本**：`notification_text` 为空时才生成（正文可能很长，也避免重复调用摘要接口）。随后**重新校验订阅资格**并写入 `notification_text`；如果摘要调用期间订阅被暂停或删除，这次投递直接丢弃，不会发出外部请求。
-6. **发送**：有封面且尚未发过图片时先发图片（caption 截断到 1024 字符，按 UTF-16 代理对边界回退），失败若属于 `TelegramPhotoError`（图片不可用）则降级为文字；否则发文字，单条截断到 4000 字符。
+6. **发送**：Markdown 经独立词法解析器转换成 Telegram 原生文本实体（粗体、斜体、删除线、代码、引用、链接），动态字段保持字面文本，原始 HTML 不执行。新投递将可见正文与 `notification_entities` 一起保存，按 UTF-16 偏移截取和重开各段实体；图片说明上限 1024，正文上限 4000，边界回避半个代理对。旧投递实体字段为空时沿用原文本和原偏移，部署不会导致已发送内容重发。
 7. **记账**：`message_id`、`photo_message_id`、`text_offset` 与 `status` 一并写回；未发完时状态回到 `pending` 且 `next_attempt_at = now + 1s`，下一次 Cron 从已持久化的 `text_offset` 继续，因此**已成功落库的段落和封面不会被重发**。若 Telegram 已收下消息但本地写库失败或请求超时，这一段会在下次重发——这是去重的边界。`attempts` 在成功一段后归零；完成时写 `sent`、`sent_at`，并把 `last_delivery_at` 记入 settings。每次调用只处理一个聊天的一条投递，借此降低并发与限速风险。
 8. **失败**：`retryDelay(attempts)` 与 `Retry-After` 取较大值作为下次时间；凭据无效（401）、目标不可用（403、文字消息的 400）这类永久错误或 `attempts >= 8` 直接置 `failed`；封面图返回 400 只按“图片不可用”降级，不计为失败。管理界面的“重试”按钮调用 `POST /api/deliveries/retry`，把 `failed` 全部重置为 `pending`、`attempts=0`。
 

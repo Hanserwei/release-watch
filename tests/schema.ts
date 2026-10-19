@@ -3,6 +3,7 @@ import publicVisibilitySchema from '../migrations/0002_public_visibility.sql?raw
 import coverAndSettingsSchema from '../migrations/0003_cover_and_settings.sql?raw';
 import newsDigestsSchema from '../migrations/0004_news_digests.sql?raw';
 import releaseGroupSyncSchema from '../migrations/0005_release_group_sync.sql?raw';
+import notificationEntitiesSchema from '../migrations/0006_notification_entities.sql?raw';
 
 async function applyMigration(db: D1Database, sql: string): Promise<void> {
   await db.batch(sql.split(';').map(statement => statement.trim()).filter(Boolean).map(statement => db.prepare(statement)));
@@ -22,4 +23,5 @@ export async function initializeTestSchema(db: D1Database): Promise<void> {
   if (!(await hasColumn(db, 'projects', 'cover_url'))) await applyMigration(db, coverAndSettingsSchema);
   await applyMigration(db, newsDigestsSchema.replace(/CREATE TABLE /g, 'CREATE TABLE IF NOT EXISTS '));
   await applyMigration(db, releaseGroupSyncSchema);
+  if (!(await hasColumn(db, 'deliveries', 'notification_entities'))) await applyMigration(db, notificationEntitiesSchema);
 }

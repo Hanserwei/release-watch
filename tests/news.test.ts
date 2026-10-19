@@ -211,7 +211,7 @@ describe('Beijing daily schedule and durable delivery', () => {
     expect(digest.text.length).toBeLessThanOrEqual(3900);
     expect(digest.articles.length).toBeGreaterThan(0);
     expect(digest.articles.length).toBeLessThan(items.length);
-    for (const item of digest.articles) expect(digest.text).toContain(item.url + (digest.text.endsWith(item.url) ? '' : '\n'));
+    for (const item of digest.articles) expect(digest.entities.some(entity => entity.type === 'text_link' && entity.url === item.url)).toBe(true);
   });
 });
 

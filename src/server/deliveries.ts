@@ -4,6 +4,8 @@ import { bounded, iso, retryDelay } from './db';
 import { sendTelegramMessage, sendTelegramPhoto, TelegramError, TelegramPhotoError } from './telegram-client';
 import { notificationChangelog } from './changelog';
 import { eligibleDelivery as eligibleSubscription, enqueueGroupReleases } from './release-targets';
+import { formatReleaseMessage } from './release-message';
+import { sliceTelegramText, telegramEntitiesSchema, type TelegramText } from './telegram-text';
 
 interface Candidate { id: number; chat_id: string; }
 interface Claimed { id: number; release_id: number; chat_id: string; attempts: number; }
@@ -51,12 +53,12 @@ export async function deliverPending(env: Env): Promise<DeliverySummary> {
     let delay = 1000;
     try {
       const release = await env.DB.prepare(`SELECT p.repo,p.cover_url,r.id,r.tag,r.name,r.url,r.prerelease,r.body,r.published_at,r.changelog_zh,
-        deliveries.notification_text,deliveries.photo_message_id,deliveries.text_offset
+        deliveries.notification_text,deliveries.notification_entities,deliveries.photo_message_id,deliveries.text_offset
         FROM deliveries JOIN releases r ON r.id=deliveries.release_id JOIN projects p ON p.id=r.project_id
         WHERE deliveries.id=? AND deliveries.status='sending' AND deliveries.lease_token=? AND ${eligibleSubscription}`)
         .bind(claimed.id, token).first<{
           id: number; repo: string; cover_url: string | null; tag: string; name: string; url: string; prerelease: number;
-          body: string; published_at: string; changelog_zh: string | null; notification_text: string | null;
+          body: string; published_at: string; changelog_zh: string | null; notification_text: string | null; notification_entities: string | null;
           photo_message_id: number | null; text_offset: number;
         }>();
       if (!release) {
@@ -66,15 +68,19 @@ export async function deliverPending(env: Env): Promise<DeliverySummary> {
         ]);
         continue;
       }
-      let text = release.notification_text;
-      if (text === null) {
+      let document: TelegramText;
+      if (release.notification_text === null) {
         const changelog = await notificationChangelog(env, release);
-        text = `${release.repo} 发布${release.prerelease ? '预发布' : '新'}版本 ${release.tag}\n${release.name}\n发布时间：${release.published_at}\n${release.url}${changelog ? `\n\n${changelog}` : ''}`;
+        document = formatReleaseMessage(release, changelog);
+      } else {
+        document = { text: release.notification_text, entities: release.notification_entities === null ? []
+          : telegramEntitiesSchema.parse(JSON.parse(release.notification_entities)) };
       }
+      const text = document.text;
       // Recheck eligibility after the optional model call, before making an external send.
-      const prepared = await env.DB.prepare(`UPDATE deliveries SET notification_text=?
+      const prepared = await env.DB.prepare(`UPDATE deliveries SET notification_text=?,notification_entities=?
         WHERE id=? AND status='sending' AND lease_token=? AND ${eligibleSubscription} RETURNING id`)
-        .bind(text, claimed.id, token).first<{ id: number }>();
+        .bind(text, JSON.stringify(document.entities), claimed.id, token).first<{ id: number }>();
       if (!prepared) {
         await env.DB.prepare('UPDATE chat_delivery_locks SET lease_token=NULL,lease_until=0 WHERE chat_id=? AND lease_token=?').bind(claimed.chat_id, token).run();
         continue;
@@ -83,19 +89,19 @@ export async function deliverPending(env: Env): Promise<DeliverySummary> {
       let photoId = release.photo_message_id;
       let messageId: number | null = null;
       if (release.cover_url && photoId === null && offset === 0) {
-        const caption = text.slice(0, 1024).replace(/[\uD800-\uDBFF]$/, '');
+        const caption = sliceTelegramText(document, 0, 1024);
         try {
           messageId = await sendTelegramPhoto(env, claimed.chat_id, caption, release.cover_url);
           photoId = messageId;
-          offset = caption.length;
+          offset = caption.text.length;
         } catch (error) {
           if (!(error instanceof TelegramPhotoError)) throw error;
         }
       }
       if (messageId === null) {
-        const chunk = text.slice(offset, offset + 4000).replace(/[\uD800-\uDBFF]$/, '');
+        const chunk = sliceTelegramText(document, offset, 4000);
         messageId = await sendTelegramMessage(env, claimed.chat_id, chunk);
-        offset += chunk.length;
+        offset += chunk.text.length;
       }
       // One successful send per chat per invocation. Persist the exact text and offset so
       // long original changelogs resume without sending the cover or earlier chunks again.

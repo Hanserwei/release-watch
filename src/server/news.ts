@@ -1,11 +1,12 @@
 import { z } from 'zod';
-import { NEWS_CATEGORIES, type NewsArticle, type NewsDashboard, type NewsPhase } from '../shared/news';
+import { NEWS_CATEGORIES, type NewsArticle, type NewsCategory, type NewsDashboard, type NewsPhase } from '../shared/news';
 import { AppError, type Env } from './env';
 import { putSetting, retryDelay, setting } from './db';
 import { getDeepSeekApiKey } from './settings';
 import { articleSchema, candidateSchema, deduplicateNews, filterNewsBatch } from './news-ai';
 import { fetchNewsSource, mergeNewsCandidates, NEWS_SOURCES, type NewsCandidate } from './news-sources';
 import { sendTelegramMessage, TelegramError } from './telegram-client';
+import { safeTelegramLink, TelegramTextBuilder, type TelegramText } from './telegram-text';
 
 const MAX_ATTEMPTS = 8;
 const LEASE_MS = 90_000;
@@ -24,21 +25,31 @@ export function newsSchedule(now: number): { date: string; scheduledAt: number; 
   return { date, scheduledAt, prepareAt: scheduledAt - 30 * 60_000 };
 }
 
-export function formatNewsDigest(date: string, articles: NewsArticle[]): { text: string; articles: NewsArticle[] } {
-  const header = `AI 开发早报 · ${date}\n北京时间 08:30 · 截至08:00的24小时\nDeepSeek 整理 · 同事件合并\n`;
-  let text = header;
+export function formatNewsDigest(date: string, articles: NewsArticle[]): TelegramText & { articles: NewsArticle[] } {
+  const icons: Record<NewsCategory, string> = { tool: '🛠️', model: '🧠', security: '🛡️', insight: '🔎', opensource: '🌐', practice: '💡' };
+  const out = new TelegramTextBuilder();
+  out.append('🗞️ AI 开发早报', { type: 'bold' }).append(`\n📅 ${date} · 北京时间 08:30\n`)
+    .append('⏱️ 截至 08:00 的 24 小时 · 精选速览\n');
   const included: NewsArticle[] = [];
-  for (const category of Object.keys(NEWS_CATEGORIES) as (keyof typeof NEWS_CATEGORIES)[]) {
+  for (const category of Object.keys(NEWS_CATEGORIES) as NewsCategory[]) {
     let categoryStarted = false;
     for (const article of articles.filter(item => item.category === category)) {
-      const section = categoryStarted ? '' : `\n【${NEWS_CATEGORIES[category]}】\n`;
-      const block = `${article.importance === 'major' ? '重点 · ' : ''}${article.title}\n${article.summary}\n来源：${article.source}\n${article.url}\n`;
-      // Keep whole articles and links; Telegram's client truncates at 4000 UTF-16 units.
-      if ((text + section + block).length > 3900) continue;
-      text += section + block; categoryStarted = true; included.push(article);
+      if (included.length >= 10) break;
+      const block = new TelegramTextBuilder();
+      if (!categoryStarted) block.append(`\n${icons[category]} ${NEWS_CATEGORIES[category]}\n`, { type: 'bold' });
+      const link = safeTelegramLink(article.url);
+      block.append(article.importance === 'major' ? '🔥 ' : '▸ ');
+      const title = new TelegramTextBuilder().append(article.title, { type: 'bold' }).build();
+      block.append(title, link ? { type: 'text_link', url: link } : undefined).append('\n');
+      block.append(article.summary).append(`\n🗞️ ${article.source}`, { type: 'italic' });
+      if (link) block.append('  ·  ').append('阅读原文 ↗', { type: 'text_link', url: link });
+      block.append('\n\n');
+      if (out.text.length + block.text.length > 3800) continue;
+      out.append(block.build()); categoryStarted = true; included.push(article);
     }
   }
-  return { text: text.trim(), articles: included };
+  out.append(`✨ ${included.length} 条精选 · DeepSeek 整理 · 同事件已合并`, { type: 'italic' });
+  return { ...out.build(), articles: included };
 }
 
 export async function getNewsDashboard(env: Env): Promise<NewsDashboard> {
@@ -137,7 +148,9 @@ export async function runNewsTick(env: Env, now = Date.now()): Promise<void> {
       if (!lock) return;
       let sendDelay = 1000;
       try {
-        const messageId = await sendTelegramMessage(env, chatId, row.message);
+        const articles = z.array(articleSchema).parse(JSON.parse(row.articles_json));
+        const message = formatNewsDigest(row.date, articles);
+        const messageId = await sendTelegramMessage(env, chatId, message);
         await env.DB.batch([
           env.DB.prepare(`UPDATE news_digests SET phase='sent',sent_at=?,telegram_message_id=?,attempts=0,error=NULL WHERE date=? AND lease_token=?`)
             .bind(new Date(now).toISOString(), messageId, row.date, token),
