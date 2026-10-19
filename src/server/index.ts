@@ -9,6 +9,7 @@ import { getDeepSeekSettings, updateDeepSeekSettings } from './settings';
 import { runChecks } from './poller';
 import { deliverPending } from './deliveries';
 import { handleTelegramWebhook } from './telegram';
+import { getNewsDashboard, retryNewsDigest, runNewsTick, updateNewsSettings } from './news';
 import type { SubscriptionInput, SubscriptionPatch } from '../shared/types';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -71,6 +72,12 @@ app.patch('/api/settings/deepseek', async c => {
   const body = await jsonObject(c.req.raw);
   return c.json({ deepseek: await updateDeepSeekSettings(c.env, { apiKey: body.apiKey, enabled: body.enabled }) });
 });
+app.get('/api/news', async c => c.json(await getNewsDashboard(c.env)));
+app.patch('/api/settings/news', async c => c.json(await updateNewsSettings(c.env, await jsonObject(c.req.raw))));
+app.post('/api/news/retry', async c => {
+  await retryNewsDigest(c.env);
+  return c.json({ ok: true });
+});
 app.post('/api/projects/:id/check', async c => {
   const summary = await runChecks(c.env, { projectId: positiveId(c.req.param('id')), force: true });
   await deliverPending(c.env);
@@ -92,10 +99,12 @@ app.onError((error, c) => {
 
 export default {
   fetch: app.fetch,
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil((async () => {
       const now = new Date().toISOString();
       await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('last_cron_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(now).run();
+      try { await runNewsTick(env, event.scheduledTime); }
+      catch { console.error(JSON.stringify({ event: 'scheduled_news_failed' })); }
       try { await runChecks(env); }
       catch { console.error(JSON.stringify({ event: 'scheduled_check_failed' })); }
       try { await deliverPending(env); }

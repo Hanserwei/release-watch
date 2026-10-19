@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { z } from 'zod';
 
 export class TelegramError extends Error {
   constructor(message: string, public retryAfter: number | null = null, public permanent = false) {
@@ -7,6 +8,19 @@ export class TelegramError extends Error {
 }
 export class TelegramPhotoError extends Error {
   constructor() { super('封面暂时不可用，将发送文字通知'); this.name = 'TelegramPhotoError'; }
+}
+
+/** Resolve the actual bot identity before acting on a group command addressed to it. */
+export async function getTelegramBotUsername(env: Env): Promise<string> {
+  if (!env.TELEGRAM_BOT_TOKEN) throw new TelegramError('尚未配置 Telegram 机器人', 300);
+  try {
+    const response = await fetch('https://api.telegram.org/bot' + env.TELEGRAM_BOT_TOKEN + '/getMe', {
+      redirect: 'manual', signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) { await response.body?.cancel(); throw new Error('telegram_identity_unavailable'); }
+    const payload = z.object({ ok: z.literal(true), result: z.object({ username: z.string().regex(/^[A-Za-z0-9_]{5,32}$/) }) }).parse(await response.json());
+    return payload.result.username;
+  } catch { throw new TelegramError('暂时无法确认机器人身份，稍后重试', 60); }
 }
 
 async function telegramRequest(env: Env, chatId: string, method: 'sendMessage' | 'sendPhoto', body: string | FormData): Promise<number> {

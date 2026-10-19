@@ -1,0 +1,21 @@
+CREATE TABLE news_digests (
+  date TEXT PRIMARY KEY,
+  scheduled_at INTEGER NOT NULL,
+  phase TEXT NOT NULL DEFAULT 'collecting' CHECK (phase IN ('collecting','filtering','deduplicating','ready','sent','empty')),
+  source_offset INTEGER NOT NULL DEFAULT 0,
+  source_failures INTEGER NOT NULL DEFAULT 0,
+  source_successes INTEGER NOT NULL DEFAULT 0,
+  filter_offset INTEGER NOT NULL DEFAULT 0,
+  candidates_json TEXT NOT NULL DEFAULT '[]',
+  curated_json TEXT NOT NULL DEFAULT '[]',
+  articles_json TEXT NOT NULL DEFAULT '[]',
+  message TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  lease_token TEXT,
+  lease_until INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  sent_at TEXT,
+  telegram_message_id INTEGER,
+  created_at TEXT NOT NULL
+);

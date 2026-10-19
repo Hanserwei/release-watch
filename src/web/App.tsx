@@ -11,6 +11,7 @@ import type { DashboardData, PublicDashboardData, PublicReleaseView, PublicStatu
 import { defaultCoverForRepo } from '../shared/covers';
 import { api, ApiRequestError, githubUrl } from './api';
 import DeepSeekSettings from './DeepSeekSettings';
+import NewsSettings from './NewsSettings';
 
 type Page = 'subscriptions' | 'timeline' | 'status';
 type Notice = { kind: 'success' | 'error'; text: string };
@@ -280,12 +281,14 @@ function StatusPage({ status, health, retrying, onRetry, token, signal, isSessio
     <section className="panel integration-card"><div className="integration-logo telegram-logo"><Send size={25} /></div><div className="integration-main"><div className="integration-heading"><h3>Telegram</h3><Badge dot tone={status.telegramConfigured && status.telegramBound && status.webhookConfigured ? 'green' : 'amber'}>{!status.telegramConfigured ? '未配置' : !status.telegramBound ? '待绑定' : !status.webhookConfigured ? '待接入' : '已就绪'}</Badge></div><p>新版本发布时，向已绑定会话发送通知。</p><div className="integration-checks"><span><span className={`check-dot${status.telegramConfigured ? ' complete' : ''}`} />机器人配置{status.telegramConfigured ? '完成' : '待完成'}</span><span><span className={`check-dot${status.webhookConfigured ? ' complete' : ''}`} />消息接入{status.webhookConfigured ? '完成' : '待完成'}</span><span><span className={`check-dot${status.telegramBound ? ' complete' : ''}`} />通知目标{status.telegramBound ? '已绑定' : '待绑定'}</span></div></div></section></div>
     <h2 className="subheading">中文摘要<span>DEEPSEEK</span></h2>
     <DeepSeekSettings token={token} signal={signal} isSessionCurrent={isSessionCurrent} onError={onError} />
+    <h2 className="subheading">每日早报<span>AI NEWS</span></h2>
+    <NewsSettings token={token} signal={signal} isSessionCurrent={isSessionCurrent} onError={onError} />
     <section className="binding-guide">
       <div className="guide-icon"><CircleHelp size={22} /></div>
       <div>
         <h3>如何接收 Telegram 通知？</h3>
-        <p>在 Telegram 中打开你的机器人，使用管理员允许的账户，在私聊中发送 <code>/start</code>。收到绑定成功的回复后，刷新本页即可查看绑定状态。此服务仅支持单管理员私聊，不支持群组。</p>
-        <p>绑定后，新建订阅会自动使用该会话，无需在网页填写会话编号。如果机器人尚未接入，请联系管理员完成机器人配置。管理访问口令仅用于网页登录。</p>
+        <p>使用管理员允许的账户，在私聊中发送 <code>/start</code>；向群组推送时，先将机器人加入群组并允许发言，再在群内发送 <code>/start@机器人用户名</code>。群组命令必须指定机器人，且仅白名单管理员可操作；请使用个人身份发送，不要启用匿名管理员身份。</p>
+        <p>绑定群组后，所有活跃版本订阅的新更新会同时发送到原会话和群组，同一版本在群内只发一份；新闻早报和新建网页订阅使用默认目标，无需逐个重新订阅。管理访问口令仅用于网页登录。</p>
       </div>
     </section>
   </>;

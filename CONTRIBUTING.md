@@ -7,16 +7,16 @@
 | 依赖 | 版本 |
 | --- | --- |
 | Node.js | ≥ 22（`package.json` 的 `engines`；CI 用 Node 24） |
-| npm | 随 Node 附带，提交 `package-lock.json` |
-| Wrangler | 已作为 devDependency 安装，通过 `npm run` 调用即可，无需全局安装 |
+| pnpm | 使用 `package.json` 指定版本，提交 `pnpm-lock.yaml` |
+| Wrangler | 已作为 devDependency 安装，通过 `pnpm` 调用即可，无需全局安装 |
 
 首次克隆后：
 
 ```bash
 git clone https://github.com/Hanserwei/release-watch.git
 cd release-watch
-npm ci
-npm run setup:local
+pnpm install --frozen-lockfile
+pnpm setup:local
 ```
 
 `setup:local` 会：
@@ -33,7 +33,7 @@ npm run setup:local
 ## 开发循环
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 该脚本会：
@@ -44,7 +44,7 @@ npm run dev
 - 每 60 秒（并在启动 3 秒后）请求一次本地定时入口，等价于线上每分钟的 Cron；
 - 任一子进程退出即整体退出，`Ctrl+C` 会一并终止两者。
 
-前端改动由 Vite HMR 直接生效；改动 `src/server/**` 时 Wrangler 会重新加载 Worker。改了 `wrangler.jsonc`、迁移或 `src/shared/**` 的类型后，建议重启一次 `npm run dev`。
+前端改动由 Vite HMR 直接生效；改动 `src/server/**` 时 Wrangler 会重新加载 Worker。改了 `wrangler.jsonc`、迁移或 `src/shared/**` 的类型后，建议重启一次 `pnpm dev`。
 
 ## 目录结构
 
@@ -86,7 +86,7 @@ tests/               Vitest 测试（workers 运行时）
 - 本地重放迁移：
 
   ```bash
-  npm run db:local
+  pnpm db:local
   ```
 
   需要从空库重建本地数据时，删除 `.wrangler/state/v3/d1` 后再执行上面的命令（本地数据不是权威副本，可安全重建）。
@@ -94,7 +94,7 @@ tests/               Vitest 测试（workers 运行时）
 ## 测试
 
 ```bash
-npm test
+pnpm test
 ```
 
 - Vitest + `@cloudflare/vitest-plugin`，测试跑在真实的 workers 运行时（`cloudflare:workers` 提供的 `env`），D1 是本地 Miniflare 实例。
@@ -107,10 +107,10 @@ npm test
 ## 提交前
 
 ```bash
-npm run check
+pnpm check
 ```
 
-它依次执行 `typecheck`、`test`、`build`，也是 CI（`.github/workflows/ci.yml`，Node 24 + `npm ci`）的唯一校验步骤。
+它依次执行 `typecheck`、`test`、`build`，也是 CI（`.github/workflows/ci.yml`，Node 24 + `pnpm install --frozen-lockfile`）的唯一校验步骤。
 
 - 只改文档时无需跑测试，但请确认新增的相对链接和引用的文件真实存在（可用 `ls` 或编辑器跳转验证），并保持命令与 `package.json` 的 `scripts` 一致。
 - 不要提交 `dist/`、`.wrangler/`、`.dev.vars`；它们都在 `.gitignore` 里，`git add -A` 前请确认 `git status` 干净。

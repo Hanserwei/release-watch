@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 
 if (!existsSync('.dev.vars')) {
-  console.error('请先运行 npm run setup:local，生成本地口令并初始化数据库。');
+  console.error('请先运行 pnpm setup:local，生成本地口令并初始化数据库。');
   process.exit(1);
 }
 if (!existsSync('dist/index.html')) {

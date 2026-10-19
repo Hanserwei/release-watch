@@ -3,18 +3,16 @@ import type { Env } from './env';
 import { bounded, iso, retryDelay } from './db';
 import { sendTelegramMessage, sendTelegramPhoto, TelegramError, TelegramPhotoError } from './telegram-client';
 import { notificationChangelog } from './changelog';
+import { eligibleDelivery as eligibleSubscription, enqueueGroupReleases } from './release-targets';
 
 interface Candidate { id: number; chat_id: string; }
 interface Claimed { id: number; release_id: number; chat_id: string; attempts: number; }
 const maxAttempts = 8;
 const leaseDuration = 60_000;
-const eligibleSubscription = `EXISTS(SELECT 1 FROM releases r JOIN subscriptions s ON s.project_id=r.project_id
-  WHERE r.id=deliveries.release_id AND s.chat_id=deliveries.chat_id AND s.paused=0
-    AND (r.prerelease=0 OR s.include_prerelease=1) AND r.notify_at>=s.notify_after
-    AND NOT EXISTS(SELECT 1 FROM subscription_release_skips k WHERE k.subscription_id=s.id AND k.release_id=r.id))`;
 export async function deliverPending(env: Env): Promise<DeliverySummary> {
   const summary: DeliverySummary = { sent: 0, failed: 0 };
   const start = Date.now();
+  await enqueueGroupReleases(env, iso(start));
   await env.DB.prepare(`DELETE FROM deliveries WHERE status!='sent' AND NOT ${eligibleSubscription}`).run();
   await env.DB.prepare(`UPDATE deliveries SET status='failed',lease_token=NULL,lease_until=0,error='发送尝试已达到上限，可手动重试'
     WHERE status='sending' AND lease_until<=? AND attempts>=?`).bind(start, maxAttempts).run();

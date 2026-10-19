@@ -1,0 +1,10 @@
+.news-panel .deepseek-toggle { margin-bottom: 20px; }
+.news-progress { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 20px 0; border-top: 1px solid var(--border, #e8e9ed); }
+.news-progress p { margin: 8px 0 0; font-size: 13px; line-height: 1.7; }
+.news-actions { display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+.news-articles { display: grid; gap: 20px; border-top: 1px solid var(--border, #e8e9ed); padding-top: 20px; }
+.news-articles h4 { margin: 0 0 12px; font-size: 14px; }
+.news-articles article + article { margin-top: 16px; }
+.news-articles a { color: inherit; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
+.news-articles p { font-size: 14px; line-height: 1.8; margin: 6px 0; }
+@media (max-width: 640px) { .news-progress { flex-direction: column; } }

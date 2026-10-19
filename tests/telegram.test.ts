@@ -92,7 +92,7 @@ describe('Telegram webhook access boundaries', () => {
     { from: { id: 12345 }, chat: { id: -100, type: 'channel' } },
     { from: { id: 12345 }, chat: { id: 99999, type: 'private' } },
     { from: { id: 12345 }, chat: { id: 12345, type: 'private' }, sender_chat: { id: 777 } },
-  ])('ignores unauthorized or non-private messages without side effects: %j', async message => {
+  ])('ignores unauthorized or unaddressed group messages without side effects: %j', async message => {
     expect((await webhook({ update_id: 1, message: { text: '/start', ...message } })).status).toBe(200);
     expect(upstream).not.toHaveBeenCalled();
     expect(await bindings.DB.prepare('SELECT key FROM settings').first()).toBeNull();
@@ -193,7 +193,7 @@ describe('Telegram commands through shared core interfaces', () => {
     expect((await webhook(update('/unsub OWNER/REPO'))).status).toBe(200);
     expect(await listSubscriptions(bindings, '12345')).toEqual([]);
     expect(await listSubscriptions(bindings, '99999')).toHaveLength(1);
-    expect(messages()[0].text).toContain('已取消当前私聊');
+    expect(messages()[0].text).toContain('已取消当前会话');
   });
 
   it('explains when the current chat is not subscribed', async () => {
@@ -494,5 +494,81 @@ describe('Telegram webhook shared chat locks and retry deadlines', () => {
     expect((await webhook()).status).toBe(fail ? 503 : 200);
     expect(await bindings.DB.prepare("SELECT next_send_at,lease_token,lease_until FROM chat_delivery_locks WHERE chat_id='12345'").first())
       .toEqual(replacement);
+  });
+});
+
+describe('Telegram group commands', () => {
+  const botUsername = 'release_watch_test_bot';
+
+  beforeEach(() => {
+    upstream.mockImplementation(async input => String(input).endsWith('/getMe')
+      ? Response.json({ ok: true, result: { username: botUsername } })
+      : Response.json({ ok: true, result: { message_id: 42 } }));
+  });
+
+  it.each(['group', 'supergroup'])('binds a %s through an addressed administrator command', async type => {
+    const payload = { update_id: 1, message: { from: { id: 12345 }, chat: { id: -1001234567890, type }, text: `/start@${botUsername}` } };
+    expect((await webhook(payload)).status).toBe(200);
+    expect(await bindings.DB.prepare("SELECT value FROM settings WHERE key='default_chat_id'").first()).toEqual({ value: '-1001234567890' });
+    const sent = upstream.mock.calls.filter(([url]) => String(url).endsWith('/sendMessage'));
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(String(sent[0][1]?.body))).toMatchObject({ chat_id: '-1001234567890', text: expect.stringContaining('已将当前群组绑定') });
+  });
+
+  it('leaves already bound private subscriptions at their original target', async () => {
+    upstream.mockResolvedValueOnce(Response.json({ full_name: 'owner/private', private: false }));
+    await addSubscription(bindings, { repo: 'owner/private', chatId: '12345' });
+    expect((await webhook({ update_id: 1, message: { from: { id: 12345 }, chat: { id: -1001234567890, type: 'supergroup' }, text: `/start@${botUsername}` } })).status).toBe(200);
+    expect(await listSubscriptions(bindings, '12345')).toHaveLength(1);
+    expect(await listSubscriptions(bindings, '-1001234567890')).toHaveLength(0);
+  });
+
+  it.each([
+    { from: { id: 99999 }, chat: { id: -1001234567890, type: 'supergroup' } },
+    { from: { id: 12345, is_bot: true }, chat: { id: -1001234567890, type: 'supergroup' } },
+    { from: { id: 12345 }, chat: { id: -1001234567890, type: 'supergroup' }, sender_chat: { id: -1001234567890 } },
+    { from: { id: 12345 }, chat: { id: 12345, type: 'group' } },
+    { from: { id: 12345 }, chat: { id: -1001234567890, type: 'channel' } },
+  ])('ignores non-admin, anonymous, bot and invalid group senders: %j', async message => {
+    expect((await webhook({ update_id: 1, message: { ...message, text: `/start@${botUsername}` } })).status).toBe(200);
+    expect(upstream).not.toHaveBeenCalled();
+    expect(await bindings.DB.prepare('SELECT key FROM settings').first()).toBeNull();
+  });
+
+  it('ignores group conversation and unaddressed commands', async () => {
+    for (const text of ['hello', '/start', '/news off']) {
+      expect((await webhook({ update_id: 1, message: { from: { id: 12345 }, chat: { id: -1001234567890, type: 'supergroup' }, text } })).status).toBe(200);
+    }
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it('does not execute a command addressed to another bot', async () => {
+    expect((await webhook({ update_id: 1, message: { from: { id: 12345 }, chat: { id: -1001234567890, type: 'supergroup' }, text: '/start@another_test_bot' } })).status).toBe(200);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(await bindings.DB.prepare('SELECT key FROM settings').first()).toBeNull();
+    expect(await bindings.DB.prepare('SELECT update_id FROM telegram_updates').first()).toBeNull();
+  });
+
+  it('retries identity failures before claiming or binding the group', async () => {
+    upstream.mockResolvedValueOnce(Response.json({ ok: false }, { status: 503 }));
+    expect((await webhook({ update_id: 1, message: { from: { id: 12345 }, chat: { id: -1001234567890, type: 'supergroup' }, text: `/start@${botUsername}` } })).status).toBe(503);
+    expect(await bindings.DB.prepare('SELECT key FROM settings').first()).toBeNull();
+    expect(await bindings.DB.prepare('SELECT update_id FROM telegram_updates').first()).toBeNull();
+  });
+});
+
+describe('group release synchronization commands', () => {
+  it('shows existing private subscriptions in the bound group list without moving them', async () => {
+    upstream.mockResolvedValueOnce(Response.json({ full_name: 'owner/private', private: false }));
+    await addSubscription(bindings, { repo: 'owner/private', chatId: '12345', includePrerelease: true });
+    await bindings.DB.prepare("INSERT INTO settings(key,value) VALUES('release_group_chat_id','-1001234567890')").run();
+    upstream.mockImplementation(async input => String(input).endsWith('/getMe')
+      ? Response.json({ ok: true, result: { username: 'release_watch_test_bot' } })
+      : Response.json({ ok: true, result: { message_id: 42 } }));
+    expect((await webhook({ update_id: 1, message: { from: { id: 12345 }, chat: { id: -1001234567890, type: 'supergroup' }, text: '/list@release_watch_test_bot' } })).status).toBe(200);
+    const reply = upstream.mock.calls.find(([url]) => String(url).endsWith('/sendMessage'));
+    expect(JSON.parse(String(reply?.[1]?.body))).toMatchObject({ chat_id: '-1001234567890', text: expect.stringContaining('owner/private · 含预发布') });
+    expect(await listSubscriptions(bindings, '12345')).toHaveLength(1);
+    expect(await listSubscriptions(bindings, '-1001234567890')).toHaveLength(0);
   });
 });

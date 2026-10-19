@@ -99,12 +99,14 @@ Release Watch 是部署在单个 Cloudflare Worker 上的版本雷达：一个 H
 
 ## Telegram Webhook
 
-1. 校验方法与密钥（见信任边界 3），读取并解析更新，过滤掉非私聊、非白名单、非文本消息。
+1. 校验方法与密钥（见信任边界 3），读取并解析更新，仅接受白名单用户的文本。私聊须匹配发送者 ID；群组和超级群只接受显式指定机器人的命令，并用 `getMe` 校验目标用户名；忽略普通群聊、其他成员、匿名管理员和频道消息。
 2. 认领 `telegram_updates`：仅在记录不存在，或处于 `processing` 且租约过期时可写入，租约 120 秒。已 `completed` 的重复投递直接返回 200，正在处理中的返回 503 并提示稍后重试。
-3. 执行命令（`/start`、`/sub`、`/unsub`、`/list`、`/status`、`/help`）。命令直接调用 `subscriptions.ts`、`queries.ts` 等模块读写 D1，**不经过自己的 HTTP API**，因此与网页端共享同一套约束而无需二次鉴权；随后续租更新租约、抢一次聊天发送锁，再回复。
+3. 执行命令（`/start`、`/sub`、`/unsub`、`/list`、`/status`、`/news`、`/help`）。命令直接调用 `subscriptions.ts`、`queries.ts`、`news.ts` 等模块读写 D1，**不经过自己的 HTTP API**，因此与网页端共享同一套约束而无需二次鉴权；随后续租更新租约、抢一次聊天发送锁，再回复。
 4. 命令返回“需要重试”语义时（GitHub 限流、上游 5xx 等），回 503 并把租约截止时间设到 `Retry-After`，Telegram 重投后即可续上；`finally` 里无论成功失败都会释放聊天锁，并把更新租约置为可重试时间，异常退出也不会永久卡住。
 
 `/start` 调用 `bindDefaultChat`：把 `settings.default_chat_id` 写入该聊天，把 `chat_id IS NULL` 的订阅接管过来（同一项目的重复空订阅被删除），并为"创建后、绑定时"之间已发现、且满足 `notify_at >= notify_after` 的版本补建投递。更早的历史版本不会补发。
+
+群内绑定同时保存 `release_group_chat_id` 与 `release_group_notify_after`。投递前从所有活跃订阅中筛选满足原有预发布、恢复基线与跳过规则的新版本，为群组额外建一份持久化投递；`UNIQUE(chat_id, release_id)` 保证多个来源订阅不会在同一群重复。原目标投递不变，群组副本使用同一套租约、分段进度和失败重试。绑定时刻之前的更新不补发，重复绑定不移动基线，私聊重新绑定不清除群组同步设置。
 
 ## 可选摘要的失败路径
 

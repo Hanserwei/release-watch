@@ -3,6 +3,7 @@ import type { SubscriptionInput, SubscriptionPatch, SubscriptionView } from '../
 import { iso, putSetting } from './db';
 import { normalizeRepo, verifyRepository } from './github';
 import { defaultCoverForRepo } from '../shared/covers';
+import { eligibleDelivery, RELEASE_GROUP_SETTING, RELEASE_GROUP_SINCE_SETTING } from './release-targets';
 
 const subscriptionSelect = `SELECT s.id, s.project_id AS projectId, p.repo, p.cover_url AS coverUrl,
  s.include_prerelease AS includePrerelease, s.interval_minutes AS intervalMinutes,
@@ -100,10 +101,7 @@ export async function updateSubscription(env: Env, id: number, patch: Subscripti
     .bind(...values, id, chatId ?? null, chatId ?? null),
     env.DB.prepare(`UPDATE projects SET next_check_at=MIN(next_check_at,?) WHERE id=(SELECT project_id FROM subscriptions WHERE ${scope})`)
       .bind(now, id, chatId ?? null, chatId ?? null)];
-  if (patch.paused === true) statements.push(env.DB.prepare(`DELETE FROM deliveries WHERE status!='sent'
-    AND EXISTS(SELECT 1 FROM subscriptions s JOIN releases r ON r.project_id=s.project_id
-      WHERE s.id=? AND (? IS NULL OR s.chat_id=?) AND s.paused=1
-      AND r.id=deliveries.release_id AND s.chat_id=deliveries.chat_id)`).bind(id, chatId ?? null, chatId ?? null));
+  if (patch.paused === true) statements.push(env.DB.prepare(`DELETE FROM deliveries WHERE status!='sent' AND NOT ${eligibleDelivery}`));
   if (patch.coverUrl !== undefined) {
     // 封面属于项目：同一仓库的多个订阅共享同一张图片。
     statements.push(env.DB.prepare(`UPDATE projects SET cover_url=? WHERE id=(SELECT project_id FROM subscriptions WHERE ${scope})`)
@@ -117,16 +115,23 @@ export async function removeSubscription(env: Env, id: number, chatId?: string):
   const current = (await listSubscriptions(env, chatId)).find(s => s.id === id);
   if (!current) throw new AppError('订阅不存在', 404);
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM deliveries WHERE status!='sent'
-      AND EXISTS(SELECT 1 FROM subscriptions s JOIN releases r ON r.project_id=s.project_id
-        WHERE s.id=? AND (? IS NULL OR s.chat_id=?)
-        AND r.id=deliveries.release_id AND s.chat_id=deliveries.chat_id)`).bind(id, chatId ?? null, chatId ?? null),
     env.DB.prepare('DELETE FROM subscriptions WHERE id=? AND (? IS NULL OR chat_id=?)').bind(id, chatId ?? null, chatId ?? null),
+    env.DB.prepare(`DELETE FROM deliveries WHERE status!='sent' AND NOT ${eligibleDelivery}`),
   ]);
 }
 export async function bindDefaultChat(env: Env, chatId: string): Promise<void> {
   if (!/^-?\d+$/.test(chatId)) throw new AppError('Telegram 目标格式不正确');
+  const groupStatements: D1PreparedStatement[] = [];
+  if (/^-[1-9]\d*$/.test(chatId)) {
+    // Repeating /start in the same group must not move its notification baseline.
+    groupStatements.push(env.DB.prepare(`INSERT INTO settings(key,value)
+      SELECT ?,? WHERE NOT EXISTS(SELECT 1 FROM settings WHERE key=? AND value=?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value`)
+      .bind(RELEASE_GROUP_SINCE_SETTING, iso(), RELEASE_GROUP_SETTING, chatId));
+    groupStatements.push(putSetting(env, RELEASE_GROUP_SETTING, chatId));
+  }
   await env.DB.batch([
+    ...groupStatements,
     putSetting(env, 'default_chat_id', chatId),
     env.DB.prepare('DELETE FROM subscriptions WHERE chat_id IS NULL AND project_id IN (SELECT project_id FROM subscriptions WHERE chat_id=?)').bind(chatId),
     env.DB.prepare('UPDATE subscriptions SET chat_id=? WHERE chat_id IS NULL').bind(chatId),

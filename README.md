@@ -23,6 +23,7 @@ Release Watch 订阅 GitHub 仓库的 Release，按设定频率检查新版本�
 - **可恢复的检查与投递**：项目、投递、Telegram 更新各自持有租约，实例重启或请求失败后自动续跑。
 - **长文不截断**：发布说明按 Telegram 上限分段，封面与已发进度落库，恢复时从记录的偏移继续，已落库的封面与分段不会重发（发送成功但写库失败时仍可能重复，见[已知限制](#已知限制)）。
 - **可选的中文摘要**：配置 DeepSeek 后附上中文要点；摘要失败时始终回退原文，不影响通知。
+- **每日 AI 开发早报**：聚合 24 个 RSS/Atom 来源和 GitHub Trending，由 DeepSeek 过滤、中文摘要、六类分类与同事件去重，每天北京时间 08:30 推送。
 - **公开只读视图**：GitHub 上确认为公开的仓库，其项目与版本可在无口令下浏览；管理动作仍受口令保护。
 
 ## 架构总览
@@ -41,40 +42,40 @@ Release Watch 订阅 GitHub 仓库的 Release，按设定频率检查新版本�
 
 ## 快速开始（本地）
 
-需要 Node.js ≥ 22（CI 使用 Node 24）与 npm。
+需要 Node.js ≥ 22（CI 使用 Node 24）与 pnpm（版本固定在 `package.json` 的 `packageManager`）。
 
 ```bash
 git clone https://github.com/Hanserwei/release-watch.git
 cd release-watch
-npm ci
-npm run setup:local
-npm run dev
+pnpm install --frozen-lockfile
+pnpm setup:local
+pnpm dev
 ```
 
-- `npm ci` 严格按 `package-lock.json` 安装依赖。
+- `pnpm install --frozen-lockfile` 严格按 `pnpm-lock.yaml` 安装依赖。
 - `setup:local` 从 `.dev.vars.example` 生成 `.dev.vars`（权限 `600`，不会提交），写入随机的 `ADMIN_TOKEN` 与 `TELEGRAM_WEBHOOK_SECRET`，补齐后续新增的可选键，并对本地 D1 执行迁移。
 - `dev` 并行启动 Worker（`http://127.0.0.1:8787`，带 `--test-scheduled`）与 Vite（默认 `http://127.0.0.1:5173`，把 `/api` 与 `/telegram` 代理到 Worker），并且每分钟请求一次本地定时入口，用来模拟线上 Cron。
 
-打开 `http://127.0.0.1:5173`，用 `.dev.vars` 里的 `ADMIN_TOKEN` 登录。新增订阅时服务端会先确认仓库可见性，所以在 `.dev.vars` 填入有仓库读取权限的 `GITHUB_TOKEN` 并重启 `npm run dev` 之前，添加订阅会直接提示凭据缺失。
+打开 `http://127.0.0.1:5173`，用 `.dev.vars` 里的 `ADMIN_TOKEN` 登录。新增订阅时服务端会先确认仓库可见性，所以在 `.dev.vars` 填入有仓库读取权限的 `GITHUB_TOKEN` 并重启 `pnpm dev` 之前，添加订阅会直接提示凭据缺失。
 
 ## 部署到 Cloudflare Workers
 
-1. **创建数据库并回填 ID**。`npm run deploy` 会读取 `wrangler.jsonc` 的 `database_id`，若仍是占位值 `00000000-0000-0000-0000-000000000000` 就直接退出：
+1. **创建数据库并回填 ID**。`pnpm run deploy` 会读取 `wrangler.jsonc` 的 `database_id`，若仍是占位值 `00000000-0000-0000-0000-000000000000` 就直接退出：
 
    ```bash
-   npx wrangler login
-   npx wrangler d1 create release-watch
+   pnpm exec wrangler login
+   pnpm exec wrangler d1 create release-watch
    ```
 
    把输出的 UUID 写入 `wrangler.jsonc` 的 `d1_databases[0].database_id`。仓库里的值是原作者账号下的库，**必须换成你自己的**；`database_name` 也要与实际库名一致。脚本只校验它不是占位值，选错库不会被拦下。
 
-2. **填写凭据**。`.dev.vars` 供 `npm run secrets:upload`、`npm run telegram:webhook` 与本地 `wrangler dev` 使用；这两个脚本在文件存在时读取它，否则回退到当前进程的环境变量。必备项见[配置](#配置)。
+2. **填写凭据**。`.dev.vars` 供 `pnpm secrets:upload`、`pnpm telegram:webhook` 与本地 `wrangler dev` 使用；这两个脚本在文件存在时读取它，否则回退到当前进程的环境变量。必备项见[配置](#配置)。
 
 3. **上传密钥并部署**：
 
    ```bash
-   npm run secrets:upload
-   npm run deploy
+   pnpm secrets:upload
+   pnpm run deploy
    ```
 
    `secrets:upload` 调用 `wrangler secret bulk`；`deploy` 先跑 `vite build`，再由 `scripts/deploy.mjs` 应用远端 D1 迁移并调用 `wrangler deploy`。
@@ -82,12 +83,12 @@ npm run dev
 4. **注册 Telegram Webhook**。把站点根地址写入 `.dev.vars` 的 `APP_URL`（只供脚本使用，不会上传为 Worker 变量），或用 `--url` 传入，然后执行：
 
    ```bash
-   npm run telegram:webhook
+   pnpm telegram:webhook
    ```
 
    脚本要求地址是 HTTPS 根路径，然后调用 `setWebhook`，回调指向 `/telegram/webhook`，`allowed_updates` 只有 `message`。之后用白名单内的账号向机器人发送 `/start` 完成绑定。
 
-> 手动部署也可以，但要按顺序：`npm run build`（`wrangler.jsonc` 的 `ASSETS` 指向 `dist/`）、`npm run db:remote`、`npx wrangler deploy`。这条路不会校验 `database_id`，也没有 `secrets:upload` 的字段检查。
+> 手动部署也可以，但要按顺序：`pnpm build`（`wrangler.jsonc` 的 `ASSETS` 指向 `dist/`）、`pnpm db:remote`、`pnpm exec wrangler deploy`。这条路不会校验 `database_id`，也没有 `secrets:upload` 的字段检查。
 
 ## 配置
 
@@ -101,7 +102,7 @@ npm run dev
 | `TELEGRAM_WEBHOOK_SECRET` | Secret | 是 | Webhook 校验密钥，24–256 位 `[A-Za-z0-9_-]`，与 `setWebhook` 的 `secret_token` 一致。 |
 | `TELEGRAM_ALLOWED_USER_ID` | Secret | 是 | 唯一允许操作机器人的用户 ID（正整数）。 |
 | `TELEGRAM_CHAT_ID` | Secret | 否 | 默认通知目标的后备值；数据库里的 `default_chat_id`（由 `/start` 写入）优先。 |
-| `DEEPSEEK_API_KEY` | Secret（可选） | 否 | 中文摘要密钥，20–200 位可见 ASCII。留空则完全由管理界面配置。 |
+| `DEEPSEEK_API_KEY` | Secret（可选） | 早报必需，版本摘要可选 | 共用的 DeepSeek 密钥，20–200 位可见 ASCII。也可在管理界面配置；停用 DeepSeek 会暂停早报处理与发送。 |
 | `POLL_BATCH_SIZE` | `vars` | 否 | 单次调度检查的项目数，未设置时为 3，取值被夹在 1–3。 |
 | `DELIVERY_BATCH_SIZE` | `vars` | 否 | 单次调度发送的会话数，取值被夹为 1，即每次只推一条。 |
 
@@ -112,10 +113,10 @@ npm run dev
 
 | 命令 | 必需 | 可选 | 前置条件 / 行为 |
 | --- | --- | --- | --- |
-| `npm run setup:local` | 无 | — | 需要 `.dev.vars.example`；自动生成 `ADMIN_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`，补空可选键，应用本地迁移 |
-| `npm run secrets:upload` | `ADMIN_TOKEN`、`GITHUB_TOKEN`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`TELEGRAM_ALLOWED_USER_ID` | `TELEGRAM_CHAT_ID`、`DEEPSEEK_API_KEY` | 需已登录 Wrangler；不检查 `POLL_BATCH_SIZE` / `DELIVERY_BATCH_SIZE`（它们在 `vars` 里） |
-| `npm run deploy` | `wrangler.jsonc` 中真实的 `database_id` | — | 已登录 Wrangler 并上传凭据；命令会自行构建、迁移和部署 |
-| `npm run telegram:webhook` | `TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、站点根地址 | — | 地址来自 `--url` 或 `APP_URL`，必须是 HTTPS 根路径 |
+| `pnpm setup:local` | 无 | — | 需要 `.dev.vars.example`；自动生成 `ADMIN_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`，补空可选键，应用本地迁移 |
+| `pnpm secrets:upload` | `ADMIN_TOKEN`、`GITHUB_TOKEN`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`TELEGRAM_ALLOWED_USER_ID` | `TELEGRAM_CHAT_ID`、`DEEPSEEK_API_KEY` | 需已登录 Wrangler；不检查 `POLL_BATCH_SIZE` / `DELIVERY_BATCH_SIZE`（它们在 `vars` 里） |
+| `pnpm run deploy` | `wrangler.jsonc` 中真实的 `database_id` | — | 已登录 Wrangler 并上传凭据；命令会自行构建、迁移和部署 |
+| `pnpm telegram:webhook` | `TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、站点根地址 | — | 地址来自 `--url` 或 `APP_URL`，必须是 HTTPS 根路径 |
 
 </details>
 
@@ -140,16 +141,33 @@ npm run dev
 
 摘要只是增强：调用失败、额度用尽、返回异常或超时（8 秒）时，通知直接附原文。
 
+### 每日 AI 开发早报
+
+本功能参考 [ai-news-bot](https://github.com/zzmlb/ai-news-bot) 的聚合与两阶段筛选流程，使用 DeepSeek `deepseek-chat` 完成相关性判断、中文摘要与话题去重，分类为编程工具、AI 模型、安全风险、行业洞察、开源项目、开发实践。
+
+1. 部署前运行 `pnpm db:local` 更新本地数据库；`pnpm run deploy` 会自动应用远端新增的 `0004_news_digests.sql` 迁移。
+2. 在「运行状态」配置并启用 DeepSeek，或设置 `DEEPSEEK_API_KEY`，再在 Telegram 私聊发送 `/start`，或在目标群发送 `/start@机器人用户名` 绑定通知目标。
+3. 「每日早报」默认开启，可以在后台切换，也可以用 `/news on`、`/news off` 控制；`/news` 查看状态。
+
+定时任务沿用现有的每分钟 Cron，无需再添加 UTC 定时表达式。每天 **北京时间 08:00** 开始，按每次 3 个来源、每个来源最多 4 条、每批 12 条分步整理，**08:30（UTC 00:30）** 起发送一条分类早报，最多 10 条，确保链接和单条内容完整。每期覆盖前一天 08:00 至当天 08:00，两个相邻日期的窗口连续，不会遗漏准备期间的半小时新闻；08:00 后发布的内容在下一期处理。GitHub Trending 明确标注为发现时间。采集列表见 [news-sources.ts](src/server/news-sources.ts)。
+
+URL 去重会排除最近 30 天已推送的链接，DeepSeek 再合并同一期相同事件的报道。部分来源不可用时使用其余成功来源，全部失败则重试；模型不可用、响应不完整或分类错误时保存进度并退避重试，不推送未经整理的原始内容。每一步连续失败 8 次后暂停，可在后台点击「重试本期」。无相关资讯时记录为空期，不发送消息。
+
+如果 08:00 后才启动或恢复服务，会补做当天准备，并在完成后补推，因此异常情况下可能晚于 08:30；不会补发往日期次。后台展示最近一期的分类内容、处理进度和来源失败数量。DeepSeek 的开关与版本摘要共用，关闭后早报也暂停；新闻独立开关只影响早报。准备内容与投递状态存于 D1，API 和日志不包含密钥。Telegram 已收取消息但写库失败时仍存在重复发送的可能。
+
 ### Telegram 命令
 
 | 命令 | 作用 |
 | --- | --- |
-| `/start` | 把当前私聊绑定为默认通知目标，接管尚未绑定的订阅 |
+| `/start` | 绑定默认通知目标并接管未绑定订阅；群内绑定还会开启所有活跃版本订阅的群组同步，保留原会话投递 |
 | `/sub owner/repo [--pre]` | 订阅仓库；`--pre` 同时关注预发布 |
-| `/unsub owner/repo` | 取消当前私聊对该仓库的订阅 |
-| `/list` | 列出当前私聊的订阅（最多显示 20 条） |
+| `/unsub owner/repo` | 取消当前会话对该仓库的订阅 |
+| `/list` | 私聊列出当前会话订阅；同步群列出实际同步的活跃项目，最多显示 20 条 |
 | `/status` | 查看凭据配置、绑定状态与投递计数 |
+| `/news [on\|off]` | 查看早报状态，或控制每日北京时间 08:30 新闻推送 |
 | `/help` | 查看命令帮助 |
+
+普通群和超级群支持推送。将机器人加入目标群并允许发言，使用 `TELEGRAM_ALLOWED_USER_ID` 对应的个人账号，在群里发送 `/start@机器人用户名`。群内其他命令也必须指定机器人，例如 `/news@机器人用户名 on`；无需关闭 Telegram 隐私模式，普通群成员和匿名管理员的命令会被忽略。绑定群组后，早报与以后新建的网页订阅发送到该群；所有现有及新增的活跃版本订阅，也会在保留原会话投递的同时向该群同步，无需逐个重新订阅。相同版本在同一群中只生成一份投递，原订阅的暂停、预发布过滤与恢复基线规则仍然有效。首次启用或更换同步群只处理此后更新，不补发历史版本；重复绑定同一群不会重置基线。再次私聊 `/start` 不会关闭已绑定群的版本同步，`/status` 可查看同步状态。
 
 <details>
 <summary>HTTP 接口一览</summary>
@@ -168,6 +186,9 @@ npm run dev
 | `PATCH /api/settings/deepseek` | 口令 | 保存、启用/停用或清除密钥（`apiKey: ""` 表示删除后台值并回退环境变量） |
 | `POST /api/projects/:id/check` | 口令 | 立即检查该项目并触发一次投递 |
 | `POST /api/deliveries/retry` | 口令 | 把失败通知重置为待发送 |
+| `GET /api/news` | 口令 | 早报开关、准备条件、最近一期状态及分类内容 |
+| `PATCH /api/settings/news` | 口令 | 切换早报，正文为 `{ "enabled": true }` 或 `false` |
+| `POST /api/news/retry` | 口令 | 重试当天已达失败上限的早报；已发送的期次不会重新推送 |
 | `POST /telegram/webhook` | Telegram 密钥 | 回调入口，仅接受 `message` 更新 |
 
 HTTP 新增订阅不接受 `chatId`：接口会丢弃该字段，聊天目标由 `/start` 绑定或 `TELEGRAM_CHAT_ID` 决定。
@@ -175,20 +196,20 @@ HTTP 新增订阅不接受 `chatId`：接口会丢弃该字段，聊天目标由
 </details>
 
 <details>
-<summary>npm 脚本</summary>
+<summary>pnpm 脚本</summary>
 
 | 脚本 | 说明 |
 | --- | --- |
-| `npm run setup:local` | 生成 `.dev.vars` 并对本地 D1 应用迁移 |
-| `npm run dev` | 并行启动 Worker 与 Vite，并模拟每分钟调度 |
-| `npm run build` | 构建前端到 `dist/`（Worker 直接引用该目录作为静态资源） |
-| `npm run typecheck` | 分别检查前端与 Worker 两套 `tsconfig` |
-| `npm test` | 用 Vitest + Cloudflare 插件在 workers 运行时执行测试 |
-| `npm run check` | 依次执行 typecheck、test、build（CI 使用同一条命令） |
-| `npm run db:local` | 对本地 D1 应用迁移；远端用 `npm run db:remote` |
-| `npm run deploy` | 构建、应用远端迁移、部署 Worker |
-| `npm run secrets:upload` | 按 `.dev.vars`（或进程环境变量）批量上传 Worker 密钥 |
-| `npm run telegram:webhook` | 注册 Telegram Webhook |
+| `pnpm setup:local` | 生成 `.dev.vars` 并对本地 D1 应用迁移 |
+| `pnpm dev` | 并行启动 Worker 与 Vite，并模拟每分钟调度 |
+| `pnpm build` | 构建前端到 `dist/`（Worker 直接引用该目录作为静态资源） |
+| `pnpm typecheck` | 分别检查前端与 Worker 两套 `tsconfig` |
+| `pnpm test` | 用 Vitest + Cloudflare 插件在 workers 运行时执行测试 |
+| `pnpm check` | 依次执行 typecheck、test、build（CI 使用同一条命令） |
+| `pnpm db:local` | 对本地 D1 应用迁移；远端用 `pnpm db:remote` |
+| `pnpm run deploy` | 构建、应用远端迁移、部署 Worker |
+| `pnpm secrets:upload` | 按 `.dev.vars`（或进程环境变量）批量上传 Worker 密钥 |
+| `pnpm telegram:webhook` | 注册 Telegram Webhook |
 
 </details>
 

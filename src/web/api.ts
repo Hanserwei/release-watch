@@ -2,6 +2,7 @@ import type {
   ApiError, CheckSummary, DashboardData, DeepSeekSettings, DeepSeekSettingsInput, DeepSeekSettingsResponse,
   PublicDashboardData, SubscriptionInput, SubscriptionPatch, SubscriptionView,
 } from '../shared/types';
+import type { NewsDashboard } from '../shared/news';
 
 export class ApiRequestError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -78,6 +79,10 @@ export const api = {
     request<DeepSeekSettingsResponse>('/api/settings/deepseek', token, { signal }).then(deepSeekSettings),
   saveDeepSeekSettings: (token: string, input: DeepSeekSettingsInput, signal?: AbortSignal) =>
     request<DeepSeekSettingsResponse>('/api/settings/deepseek', token, { method: 'PATCH', body: JSON.stringify(input), signal }).then(deepSeekSettings),
+  news: (token: string, signal?: AbortSignal) => request<NewsDashboard>('/api/news', token, { signal }),
+  saveNewsSettings: (token: string, enabled: boolean, signal?: AbortSignal) =>
+    request<NewsDashboard>('/api/settings/news', token, { method: 'PATCH', body: JSON.stringify({ enabled }), signal }),
+  retryNews: (token: string, signal?: AbortSignal) => request<{ ok: true }>('/api/news/retry', token, { method: 'POST', signal }),
 };
 
 export function githubUrl(value: string | null | undefined): string | undefined {

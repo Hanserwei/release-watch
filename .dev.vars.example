@@ -1,6 +1,6 @@
 ADMIN_TOKEN=""
 GITHUB_TOKEN=""
-# 可选：DeepSeek 中文摘要密钥，20 到 200 位可见 ASCII 字符。
+# DeepSeek 版本中文摘要与每日 AI 新闻共用密钥，20 到 200 位可见 ASCII 字符。
 # 也可以在管理界面保存（界面密钥优先），此项留空即可。
 DEEPSEEK_API_KEY=""
 TELEGRAM_BOT_TOKEN=""
